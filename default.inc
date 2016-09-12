@@ -11,7 +11,7 @@ AR       = ar
 RM       = rm -f
 
 # Flags to be passed to both C and C++ code
-CPPFLAGS = -Wall -Wextra -pedantic
+CPPFLAGS = -Wall -Wextra -pedantic -Wno-unused-function
 
 # Flags to be passed to C code
 CFLAGS   =
@@ -19,11 +19,16 @@ CFLAGS   =
 # Flags to be passed to C++ code
 CXXFLAGS = -g -O3
 
+CUDA = /opt/software/cudatoolkit/7.5
+CUDA_INC = $(CUDA)/include
+CUDA_LIB = $(CUDA)/lib
+CUDA_LIB64 = $(CUDA)/lib64
+
 # Flags to be passed to the linker, prior to listing of object files.
 LDFLAGS  =
 
 # Flags to be passed to the linker, after the listing of object files.
-LDLIBS   =
+LDLIBS   = -L$(CUDA_LIB) -Wl,-rpath,$(CUDA_LIB) -L$(CUDA_LIB64) -Wl,-rpath,$(CUDA_LIB64) -lcuda -lcudart
 
 # A list of directories containing source files containing "int
 # main()".  Each file will be compiled into a separate executable.
@@ -36,7 +41,7 @@ SRC_DIRECTORIES = src libwb/src
 
 # A list of directories containing include files.  Each directory will
 # be made available for #include directives for included files.
-INC_DIRECTORIES = include libwb/include
+INC_DIRECTORIES = include libwb/include libwb/include/vendor $(CUDA_INC)
 
 # A list of directories that contain libraries.  The list can also
 # contain patterns that expand to directories that contain libraries.

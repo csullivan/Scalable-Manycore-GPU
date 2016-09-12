@@ -1,4 +1,5 @@
 #include <wb.h>
+#include <cuda_runtime.h>
 
 int main(int argc, char **argv) {
   int deviceCount;
