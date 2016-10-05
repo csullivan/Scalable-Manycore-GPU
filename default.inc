@@ -32,7 +32,7 @@ LDLIBS   = -L$(CUDA_LIB) -Wl,-rpath,$(CUDA_LIB) -L$(CUDA_LIB64) -Wl,-rpath,$(CUD
 
 # A list of directories containing source files containing "int
 # main()".  Each file will be compiled into a separate executable.
-EXE_DIRECTORIES = . ./GPUDeviceQuery
+EXE_DIRECTORIES = . ./GPUDeviceQuery ./ScatterGather
 
 # A list of directories containing other source files.  Each file will
 # be compiled, with the resulting source file being linked into each

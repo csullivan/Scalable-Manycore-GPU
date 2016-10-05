@@ -1,13 +1,13 @@
 #include <wb.h>
 
-#define wbCheck(stmt)                                                   \
-  do {                  \
-    cudaError_t err = stmt;         \
-    if (err != cudaSuccess) {             \
-      wbLog(ERROR, "Failed to run stmt ", #stmt);     \
-      wbLog(ERROR, "Got CUDA error ...  ", cudaGetErrorString(err)); \
-      return -1;              \
-    }                   \
+#define wbCheck(stmt)                                                     \
+do {                                                                      \
+    cudaError_t err = stmt;                                               \
+    if (err != cudaSuccess) {                                             \
+      wbLog(ERROR, "Failed to run stmt ", #stmt);                         \
+      wbLog(ERROR, "Got CUDA error ...  ", cudaGetErrorString(err));      \
+      return -1;                                                          \
+    }                                                                     \
   } while (0)
 
 void stencil_cpu(char *_out, char *_in, int width, int height, int depth) {
@@ -28,72 +28,93 @@ void stencil_cpu(char *_out, char *_in, int width, int height, int depth) {
 #undef in
 }
 
-//#define idx3d(i, j, k) (k*height + j) * width + i
 #define idx3d(i,j,k) ((i)*width + (j)) * depth + (k)
 #define tile_size 16
 
 
-__device__ float clamp(float val) {
-  return (val > 255) ? 255 : (val < 0) ? 0 : val;
+__device__ float clamp(float val, int min, int max) {
+  return (val > max) ? max : (val < min) ? min : val;
 }
+
 
 __global__ void stencil(float *output, float *input, int width, int height,
       int depth) {
   //@@ INSERT CODE HERE
-  unsigned int i = blockIdx.z*blockDim.z + threadIdx.z;
-  unsigned int j = blockIdx.y*blockDim.y + threadIdx.y;
-
-
-
+  int i = blockIdx.z*blockDim.z + threadIdx.z;
+  int j = blockIdx.y*blockDim.y + threadIdx.y;
   __shared__ float zy_2d_cache[tile_size][tile_size];
-
-
   float prev = input[idx3d(i,j,0)];
   float current = input[idx3d(i,j,1)];
   float next = input[idx3d(i,j,2)];
-
-
-  __syncthreads();
-  zy_2d_cache[i][j] = current;
+  zy_2d_cache[threadIdx.z][threadIdx.y] = current;
   __syncthreads();
 
+  if (i < height && j < width) {
+    for(int k = 1; k < depth-1; k++) {
+
+      // I start with the lower end of the array. One needs to check that the thread index is not on the edge
+      // if it is, and the block is the lowest one, then the halo value is 0, otherwise it's non zero.
+      float bottom = (threadIdx.z > 0) ? zy_2d_cache[threadIdx.z - 1][threadIdx.y] : (blockIdx.z > 0) ? input[idx3d(i-1,j,k)] : 0;
+      float left = (threadIdx.y > 0) ? zy_2d_cache[threadIdx.z][threadIdx.y - 1] : (blockIdx.y > 0) ? input[idx3d(i,j-1,k)] : 0;
+      // just like above, we now do the same thing with the upper end of the image array. if the thread index is
+      // not at the top, the we load from shared memory, if it is, then we check that it's not the global top. if it is, then it's 0, else its a
+      // a globally loaded halo value.
+      float top = (threadIdx.z < blockDim.z-1) ? zy_2d_cache[threadIdx.z + 1][threadIdx.y] : (blockIdx.z < gridDim.z-1) ? input[idx3d(i+1,j,k)] : 0;
+      float right = (threadIdx.y < blockDim.y-1) ? zy_2d_cache[threadIdx.z][threadIdx.y+1] : (blockIdx.y < gridDim.y-1) ? input[idx3d(i,j+1,k)] : 0;
+      float temp = prev + next + top + bottom + right + left - 6*current;
 
 
-  for(auto k = 1u; k < depth-1; k++) {
-    auto temp = prev + next +
-      (threadIdx.z > 0) ? zy_2d_cache[threadIdx.z - 1][threadIdx.y] : input[idx3d(i-1,j,k)] +
-      (threadIdx.z < blockDim.z) ? zy_2d_cache[threadIdx.z + 1][threadIdx.y] : input[idx3d(i+1,j,k)] +
-      (threadIdx.y > 0) ? zy_2d_cache[threadIdx.z][threadIdx.y - 1] : input[idx3d(i,j,k-1)] +
-      (threadIdx.y < blockDim.y) ? zy_2d_cache[threadIdx.z][threadIdx.y+1] : input[idx3d(i,j,k+1)] -
-      6*current;
+      output[idx3d(i,j,k)] =  clamp(temp,0,255);
+      if (i==0 || i == height-1 ||  j ==0 || j==width-1) {  output[idx3d(i,j,k)] = 0.; }
 
-    output[idx3d(i,j,k)] = clamp(temp);
+      prev = current;
+      __syncthreads();
+      zy_2d_cache[threadIdx.z][threadIdx.y]=next;
+      __syncthreads();
+      current = next;
+      next = input[idx3d(i,j,k+2)];
+    }
 
-    prev = current;
-    current = next;
-
-    __syncthreads();
-    zy_2d_cache[threadIdx.z][threadIdx.y]=next;
-    __syncthreads();
-
-    next = input[idx3d(i,j+1,k)];
   }
 
 }
 
+
+__global__ void stencil_simple(float *output, float *input, int width, int height,
+            int depth) {
+
+#define out(i, j, k) output[((i)*width + (j)) * depth + (k)]
+#define in(i, j, k) input[((i)*width + (j)) * depth + (k)]
+
+  int i = blockIdx.z*blockDim.z + threadIdx.z;
+  int j = blockIdx.y*blockDim.y + threadIdx.y;
+
+  if (i < height && j < width) {
+    for (int k = 1; k < depth - 1; ++k) {
+      float temp = in(i, j, k + 1) + in(i, j, k - 1) +
+        in(i, j + 1, k) + in(i, j - 1, k) +
+        in(i + 1, j, k) + in(i - 1, j, k) - 6 * in(i, j, k);
+
+
+      out(i,j,k) = clamp(temp,0,255);
+      if (i==0 || i == height-1 ||  j ==0 || j==width-1) {  out(i,j,k) = 0.; }
+    }
+  }
+#undef out
+#undef in
+}
+
+
 static void launch_stencil(float *deviceOutputData, float *deviceInputData,
          int width, int height, int depth) {
   //@@ INSERT CODE HERE
-  //auto len = width*height*depth;
-  //auto nThreads = tile_size*tile_size;
-  //auto nBlocks = (len+nThreads-1)/nThreads;
-  //stencil<<<nBlocks,nThreads>>>(deviceOutputData,deviceInputData,width,height,depth);
-
   dim3 grid(1,(width-1)/tile_size + 1,(height-1)/tile_size +1);
   dim3 block(1,tile_size,tile_size);
-
   stencil<<<grid,block>>>(deviceOutputData,deviceInputData,width,height,depth);
 }
+
+
+
 
 int main(int argc, char *argv[]) {
   wbArg_t arg;
