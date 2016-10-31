@@ -18,27 +18,6 @@
 #define idxRowMajor(idxrow,idxcol,nrow,ncol) idxrow*ncol+idxcol
 
 
-void matMult_cpu(float *A, float *B, float *C, int numARows,
-         int numAColumns, int numBRows, int numBColumns,
-         int numCRows, int numCColumns){
-
-  int idxRowA, idxColB, k;
-  int idxA, idxB, idxC;
-  float sum;
-  for(idxRowA=0;idxRowA<numARows;idxRowA++){
-    for(idxColB=0;idxColB<numBColumns;idxColB++){
-      sum = 0.0;
-      for(k=0;k<numBRows;k++){
-        idxA = idxColumnMajor(idxRowA,k,numARows,numAColumns);
-        idxB = idxRowMajor(k,idxColB,numBRows,numBColumns);
-        sum += A[idxA]*B[idxB];
-      }
-      idxC = idxRowMajor(idxRowA,idxColB,numCRows,numCColumns);
-      C[idxC] = sum;
-    }
-  }
-}
-
 #define TILE_SIZE_A 32
 #define TILE_SIZE_B 8
 
@@ -126,27 +105,28 @@ int main(int argc, char **argv) {
   int numBRows;    // number of rows in the matrix B
   int numBColumns; // number of columns in the matrix B
   int numCRows;    // number of rows in the matrix C (you have to set this)
-  int numCColumns; // number of columns in the matrix C (you have to set this)
+  int numCColumns; // number of columns in the matrix C (you have to set
+                   // this)
 
   args = wbArg_read(argc, argv);
 
   wbTime_start(Generic, "Importing data and creating memory on host");
-  hostA =
-      ( float * )wbImport(wbArg_getInputFile(args, 0), &numAColumns, &numARows);
-  hostB =
-      ( float * )wbImport(wbArg_getInputFile(args, 1), &numBRows, &numBColumns);
+  hostA = (float *)wbImport(wbArg_getInputFile(args, 0), &numAColumns,
+                            &numARows);
+  hostB = (float *)wbImport(wbArg_getInputFile(args, 1), &numBRows,
+                            &numBColumns);
   numCRows = numARows;
   numCColumns = numBColumns;
-  hostC = ( float * )malloc(sizeof(float) * numCRows * numCColumns);
+  hostC = (float *)malloc(sizeof(float) * numCRows * numCColumns);
   wbTime_stop(Generic, "Importing data and creating memory on host");
 
   wbLog(TRACE, "The dimensions of A are ", numARows, " x ", numAColumns);
   wbLog(TRACE, "The dimensions of B are ", numBRows, " x ", numBColumns);
 
   wbTime_start(GPU, "Allocating GPU memory.");
-  cudaMalloc((void**) &deviceA, sizeof(float) * numARows * numAColumns);
-  cudaMalloc((void**) &deviceB, sizeof(float) * numBRows * numBColumns);
-  cudaMalloc((void**) &deviceC, sizeof(float) * numCRows * numCColumns);
+  cudaMalloc((void **)&deviceA, sizeof(float) * numARows * numAColumns);
+  cudaMalloc((void **)&deviceB, sizeof(float) * numBRows * numBColumns);
+  cudaMalloc((void **)&deviceC, sizeof(float) * numCRows * numCColumns);
   wbTime_stop(GPU, "Allocating GPU memory.");
 
   wbTime_start(GPU, "Copying input memory to the GPU.");
@@ -157,8 +137,8 @@ int main(int argc, char **argv) {
   wbTime_stop(GPU, "Copying input memory to the GPU.");
 
   wbTime_start(Compute, "Performing CUDA computation");
-  matrixMultiply(deviceA, deviceB, deviceC, numARows, numAColumns, numBRows,
-                 numBColumns, numCRows, numCColumns);
+  matrixMultiply(deviceA, deviceB, deviceC, numARows, numAColumns,
+                 numBRows, numBColumns, numCRows, numCColumns);
   cudaDeviceSynchronize();
   wbTime_stop(Compute, "Performing CUDA computation");
 
@@ -173,8 +153,6 @@ int main(int argc, char **argv) {
   cudaFree(deviceC);
   wbTime_stop(GPU, "Freeing GPU Memory");
 
-  //matMult_cpu(hostA, hostB, hostC, numARows, numAColumns, numBRows,numBColumns, numCRows, numCColumns);
-
   wbSolution(args, hostC, numCRows, numCColumns);
 
   free(hostA);
@@ -183,3 +161,6 @@ int main(int argc, char **argv) {
 
   return 0;
 }
+
+
+
